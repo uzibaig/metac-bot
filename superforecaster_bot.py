@@ -170,7 +170,9 @@ class SuperforecasterBot(SummerTemplateBot2026):
             question_context = clean_indents(
                 f"""
                 You are a research assistant to a superforecaster. Do not
-                produce a forecast yourself — only evidence. Today is
+                produce a forecast yourself — only evidence. Keep your report
+                under 300 words: prioritize concrete numbers, dates, and named
+                sources over prose. Today is
                 {datetime.now().strftime("%Y-%m-%d")}.
 
                 The question being forecast:
@@ -341,6 +343,12 @@ class SuperforecasterBot(SummerTemplateBot2026):
             Today is {datetime.now().strftime("%Y-%m-%d")}.
 
             {self._get_conditional_disclaimer_if_necessary(question)}
+
+            If the MARKET SIGNALS research contains a prediction-market price
+            for this or a closely related question, treat it as a strong
+            anchor: state the market's probability, note any difference
+            between the market's resolution terms and this question's, and
+            justify any deviation of more than a factor of two in odds.
 
             The last thing you write is your final answer as: "Probability: ZZ%", 0-100
             """

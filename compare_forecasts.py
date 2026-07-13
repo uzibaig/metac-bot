@@ -53,14 +53,24 @@ def load_v2_forecasts() -> dict[int, dict]:
     return forecasts
 
 
-def fetch_question_state(post_id: int) -> dict:
+def fetch_question_state(post_id: int, question_id: int) -> dict:
     response = requests.get(
         f"{API_BASE}/posts/{post_id}/",
         headers={"Authorization": f"Token {METACULUS_TOKEN}"},
         timeout=30,
     )
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+    # Plain posts nest the question under "question"; group posts (multiple
+    # subquestions per post) nest a list under "group_of_questions".
+    question = data.get("question")
+    if question and question.get("id") == question_id:
+        return question
+    group_questions = (data.get("group_of_questions") or {}).get("questions") or []
+    for sub_question in group_questions:
+        if sub_question.get("id") == question_id:
+            return sub_question
+    return question or {}
 
 
 def extract_published_probability(question_json: dict) -> float | None:
@@ -89,8 +99,7 @@ def main() -> None:
     resolved_rows = []
     pending = []
     for question_id, record in v2_forecasts.items():
-        data = fetch_question_state(record["post_id"])
-        question = data.get("question", {})
+        question = fetch_question_state(record["post_id"], question_id)
         resolution = question.get("resolution")  # "yes" / "no" / None / "annulled"
         template_probability = extract_published_probability(question)
         if resolution in ("yes", "no"):
