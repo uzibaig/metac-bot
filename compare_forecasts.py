@@ -113,7 +113,7 @@ def main() -> None:
                 }
             )
         else:
-            pending.append((record, resolution, template_probability))
+            pending.append((record, resolution, template_probability, question))
 
     print("=" * 78)
     print(f"RESOLVED ({len(resolved_rows)}) — Brier score, lower is better")
@@ -149,16 +149,17 @@ def main() -> None:
 
     print()
     print(f"PENDING ({len(pending)}):")
-    for record, resolution, template_probability in pending:
+    for record, resolution, template_probability, question in pending:
         template_text = (
             f"template p={template_probability:.3f}"
             if template_probability is not None
             else "template: none"
         )
+        resolve_time = (question.get("scheduled_resolve_time") or "?")[:10]
         print(
             f"  - {record['question_text']} "
             f"(v2 p={record['v2_prediction']:.3f}, {template_text}, "
-            f"resolution={resolution})"
+            f"resolves ~{resolve_time})"
         )
 
 
