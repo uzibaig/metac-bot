@@ -44,6 +44,21 @@ Question → 1. Triage & decomposition (parse resolution criteria, Fermi-decompo
 - [x] Phase 1c: fork live at github.com/uzibaig/metac-bot, secrets added,
       Actions enabled; Test Bot run succeeded 2026-07-08 (verified on Metaculus).
       Bot now runs every 20 min on the live tournament automatically.
+- [x] Re-forecast policy (2026-07-22, live template bot, main.py): the
+      tournament run now re-forecasts a previously-forecasted question only
+      if it's long-dated (>= 30 days to close) AND enough time has passed
+      since the last forecast (>= 7 days) — instead of forecasting once and
+      never touching it again. Implements "perpetual beta" belief updating;
+      Metaculus scores forecasters on accuracy across a question's whole
+      open lifetime, so a stale forecast on a question resolving months out
+      costs real score. Tunable via REFORECAST_MIN_DAYS_TO_CLOSE /
+      REFORECAST_MIN_DAYS_SINCE_LAST_FORECAST at the top of main.py's
+      dispatch block. Note: had to read forecast timestamps from the raw
+      api_json instead of question.previous_forecasts — the library field is
+      unreliable because it depends on community-prediction visibility,
+      which Metaculus hides for this account on most open questions
+      (unrelated bug affecting an unrelated field). Unit-tested (7/7 pass)
+      since no live questions were open to validate against at ship time.
 - [~] Phase 2 (in progress): `superforecaster_bot.py` v2 built —
       6 research lenses (news, base rates, skeptic/fine-print, market signals,
       causal mechanism, trend extrapolation), 7 personas (Bayesian anchorer,

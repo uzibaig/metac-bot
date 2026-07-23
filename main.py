@@ -646,6 +646,59 @@ class SummerTemplateBot2026(ForecastBot):
         )
 
 
+# ---- Re-forecast policy (long-dated questions only) ------------------------
+# The live tournament run fires every 20 minutes, but forecasting once per
+# question and never touching it again means long-dated questions (many of
+# ours resolve in 2027) never benefit from evidence that arrives after the
+# first forecast. Re-forecast a previously-forecasted question only if it
+# won't close soon AND enough time has passed since the last forecast, so we
+# capture genuine drift without paying to regenerate the same number on
+# stable questions.
+REFORECAST_MIN_DAYS_TO_CLOSE = 30
+REFORECAST_MIN_DAYS_SINCE_LAST_FORECAST = 7
+
+
+def _last_own_forecast_time(question: MetaculusQuestion) -> datetime | None:
+    """
+    forecasting-tools' `question.previous_forecasts` is unreliable for this
+    purpose: it's parsed inside a try/except that also depends on the
+    community-prediction aggregation being visible to this account, and
+    Metaculus hides that on most open questions for accounts that haven't
+    forecasted them yet (unrelated to whether *this* bot has forecasted).
+    When that lookup throws, forecasting-tools silently sets
+    previous_forecasts=None even if this account has a forecast history.
+    Read the raw API JSON directly instead.
+    """
+    try:
+        history = question.api_json["question"]["my_forecasts"]["history"]
+    except (KeyError, TypeError):
+        return None
+    if not history:
+        return None
+    start_time = history[-1].get("start_time")
+    if start_time is None:
+        return None
+    return datetime.fromtimestamp(start_time, tz=timezone.utc)
+
+
+def should_forecast_question(question: MetaculusQuestion) -> bool:
+    if not question.already_forecasted:
+        return True
+    if question.close_time is None:
+        return False  # Can't judge how long-dated it is; don't re-forecast.
+    last_forecast_time = _last_own_forecast_time(question)
+    if last_forecast_time is None:
+        return False  # Can't confirm timing; safer to skip than double-post.
+
+    now = datetime.now(timezone.utc)
+    days_to_close = (question.close_time - now).total_seconds() / 86400
+    if days_to_close < REFORECAST_MIN_DAYS_TO_CLOSE:
+        return False
+
+    days_since_last_forecast = (now - last_forecast_time).total_seconds() / 86400
+    return days_since_last_forecast >= REFORECAST_MIN_DAYS_SINCE_LAST_FORECAST
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -705,17 +758,35 @@ if __name__ == "__main__":
     # summary printers below.
     client = MetaculusClient()
     if run_mode == "tournament":
-        seasonal_tournament_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+        # Do our own fetch + filter (see should_forecast_question above)
+        # instead of forecast_on_tournament's built-in skip logic, which only
+        # supports an all-or-nothing "skip if ever forecasted" policy.
+        template_bot.skip_previously_forecasted_questions = False
+        all_open_questions: list[MetaculusQuestion] = []
+        for tournament_id in (
+            client.CURRENT_AI_COMPETITION_ID,
+            client.CURRENT_MINIBENCH_ID,
+        ):
+            all_open_questions.extend(
+                client.get_all_open_questions_from_tournament(tournament_id)
+            )
+        questions_to_forecast = [
+            question
+            for question in all_open_questions
+            if should_forecast_question(question)
+        ]
+        logger.info(
+            f"Forecasting on {len(questions_to_forecast)} of "
+            f"{len(all_open_questions)} open tournament questions "
+            f"(re-forecast policy: >= {REFORECAST_MIN_DAYS_TO_CLOSE} days to "
+            f"close, >= {REFORECAST_MIN_DAYS_SINCE_LAST_FORECAST} days since "
+            "last forecast)"
+        )
+        forecast_reports = asyncio.run(
+            template_bot.forecast_questions(
+                questions_to_forecast, return_exceptions=True
             )
         )
-        minibench_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_MINIBENCH_ID, return_exceptions=True
-            )
-        )
-        forecast_reports = seasonal_tournament_reports + minibench_reports
     elif run_mode == "metaculus_cup":
         # The Metaculus Cup may be uninitialized near the start of a season
         # (Jan/May/Sep). AXC_2025_TOURNAMENT_ID = 32564 and
